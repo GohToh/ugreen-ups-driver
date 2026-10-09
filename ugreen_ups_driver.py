@@ -5,7 +5,9 @@ ugreen_ups_driver.py — NUT-compatible driver daemon for UGREEN US3000 UPS
 Reads HID feature/interrupt reports directly via hidraw and exposes
 UPS data over a TCP socket in NUT server protocol format.
 
-Confirmed working with: UGREEN US3000, firmware V3.3, TrueNAS SCALE, NUT 2.8.0.
+Confirmed working with: UGREEN US3000, firmware V3.3, TrueNAS SCALE, NUT 2.8.0 (upstream);
+additionally validated on Unraid 7.3.3 with NUT 2.8.5 (dummy-ups).
+
 USB: VID 0x2b89 PID 0xffff
 
 Usage:
@@ -337,8 +339,28 @@ def decode_stream_report(data):
         # [16-17] in OL/OL_CHRG: DC input voltage ÷ 1000 (~18.87-18.90V from the
         # 19V brick). Stable with ADC noise (±4 counts); not published (redundant
         # with [18-19] published as input.voltage).
-        # Clear stale battery.runtime from any previous OB mode.
-        updates["battery.runtime"] = None
+        #
+        # battery.runtime in OL/OL_CHRG: prognosis "how long would the UPS hold
+        # if mains failed right now". Estimated battery discharge power =
+        # measured input power × DCDC_FACTOR 1.5 — empirical load-step test
+        # (Oct 2026): battI/inputI = 1.50 (idle) and 1.51 (full load) comparing
+        # OB battery.current vs OL input.current, consistent across both load
+        # points. Guard: needs valid input readings and >5W estimated battery
+        # power (below that the NAS is off and the estimate is meaningless).
+        # Note: while actively charging (OL CHRG) input.current includes the
+        # charge power, so the prognosis reads conservative (too low) until the
+        # battery is full.
+        if 0 < in_i_raw < 10000 and 8000 < v_raw < 25000 and 0 <= charge <= 100:
+            p_in_w = (v_raw * in_i_raw) / 1e6
+            p_batt_est = p_in_w * 1.5
+            if p_batt_est > 5.0:
+                updates["battery.runtime"] = str(int((charge / 100.0) * 43.2 * 3600.0 / p_batt_est))
+            else:
+                # Implausibly low power: no meaningful prognosis
+                updates["battery.runtime"] = None
+        else:
+            # Missing/implausible input readings: clear stale OB runtime
+            updates["battery.runtime"] = None
 
     elif mode == 0x21:
         # OB — on battery
