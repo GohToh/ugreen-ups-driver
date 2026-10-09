@@ -366,7 +366,7 @@ def decode_stream_report(data):
         if 0 < batt_i_raw < 20000 and 13000 < batt_v_raw < 18000 and 0 < charge <= 100:
             power_w = (batt_v_raw / 1000.0) * (batt_i_raw / 1000.0)
             if power_w > 1.0:
-                updates["battery.runtime"] = str(int((charge / 100.0) * 43.0 * 3600.0 / power_w))
+                updates["battery.runtime"] = str(int((charge / 100.0) * 43.2 * 3600.0 / power_w))
                 updates["ups.load"] = str(int(round(power_w / 120.0 * 100)))
 
     return updates
